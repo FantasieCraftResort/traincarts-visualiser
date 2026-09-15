@@ -1,0 +1,81 @@
+/* ============================================
+   TrainCarts Visualiser — design tokens
+   ============================================ */
+:root {
+  --bg: #14161a;
+  --panel: #1c1f26;
+  --grid: #2a2e37;
+  --text: #e4e7ec;
+  --text-muted: #8b93a1;
+  --accent: #4fd1c5;
+
+  --font-ui: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+}
+
+/* Scope everything to one wrapper so we never leak styles into the
+   rest of the WordPress theme. */
+#tcv-app {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  padding: 24px;
+  border-radius: 4px;
+}
+
+#tcv-app * {
+  box-sizing: border-box;
+}
+
+/* ---------- Row 1: timeline graph ---------- */
+.tcv-graph-panel {
+  background: var(--panel);
+  border: 1px solid var(--grid);
+  padding: 16px;
+}
+
+.tcv-graph-panel h2 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.tcv-graph-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Gridlines */
+.tcv-grid-line {
+  stroke: var(--grid);
+  stroke-width: 1;
+}
+
+/* Axis labels — numeric, so monospace */
+.tcv-axis-label {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* Eased curve path per property */
+.tcv-curve {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+/* Strict keyframe points */
+.tcv-point {
+  fill: var(--bg);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.tcv-point:hover {
+  fill: var(--accent);
+  cursor: pointer;
+}

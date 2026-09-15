@@ -1,86 +1,127 @@
 /* ============================================
-   TrainCarts Visualiser — shared state & math
-   Every row reads/writes this one object, so
-   rows stay in sync without talking to each
-   other directly.
+   TrainCarts Visualiser — Row 1: timeline graph
+   Draws every visible property's eased curve
+   plus its strict keyframe points, on an SVG
+   time/value grid.
    ============================================ */
 
-const TCV = {}; // single global namespace, avoids polluting `window`
+(function () {
+  const WIDTH = 900;
+  const HEIGHT = 320;
+  const PAD = { top: 16, right: 16, bottom: 32, left: 40 };
 
-/**
- * One property's animation = an ordered list of keyframes.
- * Each keyframe (except the first) carries the easing curve
- * used to get there FROM the previous keyframe.
- *
- * easing: [x1, y1, x2, y2]  -> TrainCarts' 4 easing parameters
- *         (control points of a cubic bezier from (0,0) to (1,1))
- */
-TCV.state = {
-  properties: {
-    x: {
-      keyframes: [
-        { time: 0, value: 0 },
-        { time: 4, value: 3, easing: [0.12, 0, 0.39, 0] }, // sin_in
-      ],
-    },
-    y: {
-      keyframes: [
-        { time: 0, value: 0 },
-        { time: 2.5, value: 1.5, easing: [0.61, 1, 0.88, 1] }, // sin_out
-      ],
-    },
-  },
-  visibility: { x: true, y: true, z: false, yaw: false, pitch: false, roll: false },
-};
+  const plotW = WIDTH - PAD.left - PAD.right;
+  const plotH = HEIGHT - PAD.top - PAD.bottom;
 
-/* ---------- Cubic bezier easing math ---------- */
+  const propertyColors = {
+    x: "#4fd1c5",
+    y: "#f2c94c",
+    z: "#eb5757",
+    yaw: "#9b51e0",
+    pitch: "#56ccf2",
+    roll: "#f2994a",
+  };
 
-/**
- * Evaluate a cubic bezier component at parameter u, given the two
- * interior control points' coordinate on that axis (start=0, end=1).
- */
-function bezierComponent(u, c1, c2) {
-  const mu = 1 - u;
-  return 3 * mu * mu * u * c1 + 3 * mu * u * u * c2 + u * u * u;
-}
-
-function bezierComponentDerivative(u, c1, c2) {
-  const mu = 1 - u;
-  return 3 * mu * mu * c1 + 6 * mu * u * (c2 - c1) + 3 * u * u * (1 - c2);
-}
-
-/**
- * Given progress along TIME (x, 0..1) and the easing control points,
- * solve for the bezier parameter u, then return progress along VALUE (y).
- * This is the same problem browsers solve for CSS cubic-bezier() timing.
- */
-TCV.solveEasingY = function (x, easing) {
-  const [x1, y1, x2, y2] = easing;
-
-  // Newton-Raphson, falls back to bisection if the derivative is ~0
-  let u = x; // decent starting guess
-  for (let i = 0; i < 8; i++) {
-    const currentX = bezierComponent(u, x1, x2) - x;
-    const derivative = bezierComponentDerivative(u, x1, x2);
-    if (Math.abs(derivative) < 1e-6) break;
-    u -= currentX / derivative;
-    u = Math.min(1, Math.max(0, u));
+  function svgEl(tag, attrs) {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const key in attrs) el.setAttribute(key, attrs[key]);
+    return el;
   }
-  return bezierComponent(u, y1, y2);
-};
 
-/** Value of a property at an arbitrary time, following its keyframes. */
-TCV.valueAt = function (propertyKey, time) {
-  const kfs = TCV.state.properties[propertyKey].keyframes;
-  if (time <= kfs[0].time) return kfs[0].value;
-  for (let i = 1; i < kfs.length; i++) {
-    if (time <= kfs[i].time) {
-      const prev = kfs[i - 1];
-      const cur = kfs[i];
-      const x = (time - prev.time) / (cur.time - prev.time);
-      const progress = cur.easing ? TCV.solveEasingY(x, cur.easing) : x;
-      return prev.value + (cur.value - prev.value) * progress;
+  function getTimeRange() {
+    let maxTime = 0;
+    for (const key in TCV.state.properties) {
+      const kfs = TCV.state.properties[key].keyframes;
+      maxTime = Math.max(maxTime, kfs[kfs.length - 1].time);
     }
+    return { min: 0, max: Math.max(maxTime, 1) };
   }
-  return kfs[kfs.length - 1].value;
-};
+
+  function getValueRange() {
+    let min = 0, max = 1;
+    for (const key in TCV.state.properties) {
+      TCV.state.properties[key].keyframes.forEach((kf) => {
+        min = Math.min(min, kf.value);
+        max = Math.max(max, kf.value);
+      });
+    }
+    return { min, max };
+  }
+
+  function timeToX(t, range) {
+    return PAD.left + ((t - range.min) / (range.max - range.min)) * plotW;
+  }
+  function valueToY(v, range) {
+    return PAD.top + plotH - ((v - range.min) / (range.max - range.min)) * plotH;
+  }
+
+  function buildCurvePath(propertyKey, timeRange, valueRange) {
+    const SAMPLES = 60;
+    const points = [];
+    for (let i = 0; i <= SAMPLES; i++) {
+      const t = timeRange.min + (timeRange.max - timeRange.min) * (i / SAMPLES);
+      const v = TCV.valueAt(propertyKey, t);
+      points.push(`${timeToX(t, timeRange).toFixed(2)},${valueToY(v, valueRange).toFixed(2)}`);
+    }
+    return "M " + points.join(" L ");
+  }
+
+  function renderGraph() {
+    const container = document.getElementById("tcv-graph");
+    if (!container) return;
+    container.innerHTML = "";
+
+    const svg = svgEl("svg", {
+      viewBox: `0 0 ${WIDTH} ${HEIGHT}`,
+      class: "tcv-graph-svg",
+    });
+
+    const timeRange = getTimeRange();
+    const valueRange = getValueRange();
+
+    // Gridlines + time axis labels
+    const gridSteps = 8;
+    for (let i = 0; i <= gridSteps; i++) {
+      const t = timeRange.min + (timeRange.max - timeRange.min) * (i / gridSteps);
+      const x = timeToX(t, timeRange);
+      svg.appendChild(
+        svgEl("line", { x1: x, y1: PAD.top, x2: x, y2: PAD.top + plotH, class: "tcv-grid-line" })
+      );
+      const label = svgEl("text", { x, y: HEIGHT - 10, class: "tcv-axis-label", "text-anchor": "middle" });
+      label.textContent = t.toFixed(1) + "s";
+      svg.appendChild(label);
+    }
+
+    // Curves + points, one per visible property
+    for (const key in TCV.state.properties) {
+      if (!TCV.state.visibility[key]) continue;
+      const color = propertyColors[key] || "#ffffff";
+
+      const path = svgEl("path", { d: buildCurvePath(key, timeRange, valueRange), class: "tcv-curve" });
+      path.style.stroke = color;
+      svg.appendChild(path);
+
+      TCV.state.properties[key].keyframes.forEach((kf) => {
+        const circle = svgEl("circle", {
+          cx: timeToX(kf.time, timeRange),
+          cy: valueToY(kf.value, valueRange),
+          r: 5,
+          class: "tcv-point",
+        });
+        circle.style.stroke = color;
+        svg.appendChild(circle);
+      });
+    }
+
+    container.appendChild(svg);
+  }
+
+  // Expose so other rows (toggles, imports) can trigger a redraw later
+  TCV.renderGraph = renderGraph;
+
+  // Run immediately: this script tag is placed after #tcv-graph in the
+  // HTML, so the element already exists by the time this line runs.
+  // (Waiting for DOMContentLoaded is unreliable in WordPress, since some
+  // themes/page-builders inject block content after that event fires.)
+  renderGraph();
+})();

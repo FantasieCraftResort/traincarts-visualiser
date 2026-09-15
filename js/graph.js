@@ -6,6 +6,10 @@
    ============================================ */
 
 (function () {
+  // Same duplicate-load guard as state.js
+  if (window.__tcvGraphLoaded) return;
+  window.__tcvGraphLoaded = true;
+
   const WIDTH = 900;
   const HEIGHT = 320;
   const PAD = { top: 16, right: 16, bottom: 32, left: 40 };
